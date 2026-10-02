@@ -42,17 +42,18 @@ app = FastAPI(
     description="Elder-Friendly Medicine Intaking & Reminder System Backend API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if (settings.DEBUG or settings.ENVIRONMENT != "production") else None,
-    redoc_url="/redoc" if (settings.DEBUG or settings.ENVIRONMENT != "production") else None
+    docs_url="/docs" if (settings.DEBUG or settings.ENABLE_DOCS or settings.ENVIRONMENT != "production") else None,
+    redoc_url="/redoc" if (settings.DEBUG or settings.ENABLE_DOCS or settings.ENVIRONMENT != "production") else None
 )
 
 # 1. Rate Limiting Middleware (abuse & brute force protection)
 app.add_middleware(RateLimiterMiddleware)
 
-# 2. Strict CORS Configuration for Production
+# 2. Strict CORS Configuration for Production (supports custom domains and any Vercel deployment URL)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[
@@ -102,9 +103,10 @@ def root():
     }
 
 @app.get("/health")
+@app.get("/api/health")
 @app.get("/api/v1/health")
 def health_check():
-    """Production health probe for load balancers and container orchestrators."""
+    """Production health probe for load balancers, Vercel, and container orchestrators."""
     db_status = "connected"
     try:
         with engine.connect() as conn:
@@ -125,3 +127,38 @@ def health_check():
         "environment": settings.ENVIRONMENT,
         "version": "1.0.0"
     }
+
+# 5. Vercel Cron Endpoint for Serverless Reminder Lifecycle Execution
+@app.get("/api/v1/cron/reminders")
+@app.get("/api/cron/reminders")
+def cron_reminders():
+    """Vercel Cron endpoint: periodic sweep for due reminders and overdue grace periods."""
+    from app.services.reminder_service import ReminderService
+    from app.core.database import SessionLocal
+    with SessionLocal() as db:
+        result = ReminderService.process_reminder_lifecycle(db)
+        return {
+            "status": "success",
+            "cycle": "cron",
+            "result": result
+        }
+
+# 6. Swagger Documentation Aliases for Vercel
+@app.get("/api/docs", include_in_schema=False)
+@app.get("/api/v1/docs", include_in_schema=False)
+async def get_api_documentation():
+    if not (settings.DEBUG or settings.ENABLE_DOCS or settings.ENVIRONMENT != "production"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    from fastapi.openapi.docs import get_swagger_ui_html
+    return get_swagger_ui_html(
+        openapi_url="/api/openapi.json" if app.openapi_url else "/openapi.json",
+        title=f"{settings.PROJECT_NAME} - API Docs"
+    )
+
+@app.get("/api/openapi.json", include_in_schema=False)
+@app.get("/api/v1/openapi.json", include_in_schema=False)
+async def get_api_openapi():
+    if not (settings.DEBUG or settings.ENABLE_DOCS or settings.ENVIRONMENT != "production"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    return JSONResponse(app.openapi())
+

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    ENABLE_DOCS: bool = os.getenv("ENABLE_DOCS", "true").lower() == "true"
     
     # Database Configuration - Defaults to PostgreSQL with fallback capability
     DATABASE_URL: str = os.getenv(

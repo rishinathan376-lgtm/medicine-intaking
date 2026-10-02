@@ -23,10 +23,18 @@ def get_engine():
         if db_url.startswith("sqlite"):
             connect_args = {"check_same_thread": False}
         
+        engine_kwargs = {
+            "pool_pre_ping": True,
+            "connect_args": connect_args
+        }
+        if not db_url.startswith("sqlite"):
+            engine_kwargs["pool_recycle"] = 300
+            engine_kwargs["pool_size"] = 5
+            engine_kwargs["max_overflow"] = 10
+        
         test_engine = create_engine(
             db_url,
-            pool_pre_ping=True,
-            connect_args=connect_args
+            **engine_kwargs
         )
         
         # Test connection
