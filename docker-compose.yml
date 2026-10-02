@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database Service
+  db:
+    image: postgres:16-alpine
+    container_name: eldermed-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: medreminder_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_secure_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d medreminder_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eldermed-network
+
+  # 2. FastAPI Backend API Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eldermed-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://postgres:postgres_secure_password@db:5432/medreminder_db
+      SECRET_KEY: eldermed-production-jwt-secret-key-change-in-env-file-2026
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:80
+      FRONTEND_URL: http://localhost:3000
+      RUN_SCHEDULER_IN_APP: "true"
+      SEED_DEMO_DATA: "false"
+      APP_TIMEZONE: Asia/Kolkata
+      GRACE_PERIOD_MINUTES: "30"
+      REMINDER_CHECK_INTERVAL_SECONDS: "15"
+      RATE_LIMIT_ENABLED: "true"
+      EMAIL_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - eldermed-network
+
+  # 3. Dedicated Background Reminder Worker Service (Optional multi-container profile)
+  # Run with: docker compose --profile worker up
+  reminder-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eldermed-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg://postgres:postgres_secure_password@db:5432/medreminder_db
+      APP_TIMEZONE: Asia/Kolkata
+      GRACE_PERIOD_MINUTES: "30"
+      REMINDER_CHECK_INTERVAL_SECONDS: "15"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - worker
+    networks:
+      - eldermed-network
+
+  # 4. React Frontend Web Application Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: eldermed-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - eldermed-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  eldermed-network:
+    driver: bridge
